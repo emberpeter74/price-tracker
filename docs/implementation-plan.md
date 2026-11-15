@@ -717,6 +717,8 @@ Colours: more expensive than the cheapest competitor → fill `FFC7CE`; cheaper 
 
 ### Task 9: Clean input files from the client's originals
 
+> The conversion script and its tests are not in this repository: they only work on the client's original files, which are private. Its result is published in `sample-input/`.
+
 **Files:**
 - Create: `tools/convert_inputs.py`, `tools/vat_basis.csv`
 - Create (generated, committed): `input/Items.xlsx`, `input/Competitors.xlsx`, `input/Product links.xlsx`, `input/Input data findings.xlsx`
