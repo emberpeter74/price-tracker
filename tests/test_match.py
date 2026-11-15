@@ -97,6 +97,13 @@ def test_name_only_match_is_unverified():
     assert r.label == Label.UNVERIFIED and r.offer.price == D("343.00") and "name" in r.remark
 
 
+def test_similar_name_on_a_page_stating_a_different_mpn_is_not_found():
+    # "K33 fuel" page (mpn 553000) must not be offered for the "K33 oil" item (558000)
+    it = item(code="558000", name="Piusi K33 Oil Flow Meter")
+    r = match_page(it, page(name="Piusi K33 Fuel Flow Meter", mpn="553000"), URL, False)
+    assert r.label == Label.NOT_FOUND
+
+
 def test_low_name_overlap_is_not_found():
     assert match_page(item(), page(name="Piusi K33 flow meter"), URL, False).label == Label.NOT_FOUND
 

@@ -120,7 +120,8 @@ def match_page(item: Item, page: ProductPage, page_url: str, trusted: bool) -> M
             label, why = Label.VERIFIED, ""
         elif family and (structured or in_name or overlap >= NAME_THRESHOLD):
             label, why = Label.UNVERIFIED, "The item code is a product family, so the match cannot be verified"
-        elif overlap >= NAME_THRESHOLD:
+        elif overlap >= (1.0 if other_mpn else NAME_THRESHOLD):
+            # a page that states a different code is only offered when the name matches completely
             label, why = Label.UNVERIFIED, "Matched by name only; the item code is not on the page"
         else:
             return MatchResult(Label.NOT_FOUND, None, "No matching product page")
