@@ -94,7 +94,7 @@ Item codes that stand for a product family and not one product (for example a co
 - The client's prices are **ex VAT**.
 - The tool captures both the ex-VAT and inc-VAT price where the page shows both.
 - Where a site shows only one, the other is calculated at 20% and **marked as calculated**.
-- Each site's VAT basis is recorded in the competitors file. We fill it in for the listed competitors when we build the clean input files, by checking each site by eye; the client can correct it.
+- Each site's VAT basis is recorded in the competitors file. We fill it in for the sites where we could confirm it from a product page; the others start as `Unknown`. The client can correct it.
 - If the basis is unknown (for example, a newly added competitor), the price is shown as read, marked "VAT basis unknown", and is not compared until the basis is filled in. This is written to the issues file.
 - Comparison against the client's price is always ex VAT.
 

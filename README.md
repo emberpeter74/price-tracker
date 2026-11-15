@@ -4,7 +4,7 @@ A command-line tool that reads competitor prices from their websites and compare
 
 You give it three Excel files: your items, your competitors, and (optionally) links to product pages. It finds each item on each competitor's site, reads the price, and writes the results back to Excel: one dated file per scan, plus a comparison workbook with price-history graphs.
 
-This is a proof of concept built for a real client in the fuel-handling equipment trade. The sample data in [`sample-input/`](sample-input/) is that client's item and competitor list, published with permission. It was produced from the client's original spreadsheets by a one-off conversion that is not part of this repository.
+This is a proof of concept built for a real client in the fuel-handling equipment trade. The sample data in [`sample-input/`](sample-input/) is that client's item and competitor list; the client's prices in it are the ones shown publicly on their website. It was produced from the client's original spreadsheets by a one-off conversion that is not part of this repository.
 
 ## What it does
 

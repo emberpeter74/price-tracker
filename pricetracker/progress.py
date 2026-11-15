@@ -40,10 +40,13 @@ class Progress:
 
     def summary(self, results: list[PriceResult], issues: int, issues_path: Path) -> None:
         counts = Counter(r.label for r in results)
-        found = sum(counts[l] for l in (Label.CLIENT_LINK, Label.VERIFIED, Label.MANUAL))
+        confirmed = [r for r in results if r.label in (Label.CLIENT_LINK, Label.VERIFIED, Label.MANUAL)]
+        found = sum(1 for r in confirmed if r.price_ex is not None)
         self.say("")
         self.say(f"Finished: {len(results)} of {self.total} lookups.")
         self.say(f"  Prices found:      {found}")
+        if len(confirmed) > found:
+            self.say(f"  VAT basis unknown: {len(confirmed) - found}  (price read, but not compared)")
         self.say(f"  Unverified:        {counts[Label.UNVERIFIED]}")
         self.say(f"  Not found:         {counts[Label.NOT_FOUND]}")
         self.say(f"  Blocked:           {counts[Label.BLOCKED]}")

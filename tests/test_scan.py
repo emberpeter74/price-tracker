@@ -396,6 +396,14 @@ def test_progress_shows_count_item_company_and_result(tmp_path, make_xlsx):
     assert "Verified" in line and "£146.14 ex VAT" in line
 
 
+def test_summary_counts_prices_without_a_vat_basis_separately(tmp_path, make_xlsx):
+    inp, out = workspace(tmp_path, make_xlsx, comps=[
+        ["Piusi Equipment", "Hytek", H + "/", None, None, "Unknown", None, None]])
+    buf = io.StringIO()
+    run_scan(inp, out, fetcher=make_fetcher(SITE)[0], now=NOW, out=buf)
+    assert "Prices found:      0" in buf.getvalue() and "VAT basis unknown: 1" in buf.getvalue()
+
+
 def test_progress_survives_a_console_that_cannot_show_pound_signs(tmp_path, make_xlsx):
     class Cp1250(io.StringIO):
         encoding = "cp1250"
