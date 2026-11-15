@@ -75,7 +75,8 @@ class ProductLink:
     manual_price: Decimal | None
     manual_vat: VatBasis | None
     manual_date: date | None
-    row: int
+    row: int  # 0 = not yet in the file
+    url_readonly: bool = False  # client's unusable link: never write the link cell
 
 
 @dataclass
