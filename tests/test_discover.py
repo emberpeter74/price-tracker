@@ -66,6 +66,16 @@ def test_form_without_method_or_action_defaults_to_get_on_the_page():
         "https://www.shop.co.uk/?keywords={q}")
 
 
+def test_search_input_with_bracketed_name_is_recognised():
+    html = '<form action="https://www.shop.co.uk/search.html" method="get"><input name="search[keywords]" type="text"></form>'
+    assert find_search_address(html, HOME) == "https://www.shop.co.uk/search.html?search%5Bkeywords%5D={q}"
+
+
+def test_opencart_style_search_box_without_a_form():
+    html = '<div id="search"><input type="text" name="search" placeholder="Search"><button></button></div>'
+    assert find_search_address(html, HOME) == "https://www.shop.co.uk/index.php?route=product/search&search={q}"
+
+
 def test_form_with_post_method_is_ignored():
     assert find_search_address('<form action="/search" method="POST"><input name="q"></form>', HOME) == ""
 
@@ -136,8 +146,10 @@ def test_check_site_keeps_existing_address_and_only_retests_it():
 
 # ----- search terms -----
 
-def test_search_terms_order():
-    assert search_terms(item()) == ["F00373000", "PIUSI F00373000", "PIUSI EX50 Fuel Transfer Pump, 230v"]
+def test_search_terms_order_is_mpn_then_ean_then_name():
+    assert search_terms(item(ean="8050031000670")) == [
+        "F00373000", "8050031000670", "PIUSI EX50 Fuel Transfer Pump, 230v"]
+    assert search_terms(item()) == ["F00373000", "PIUSI EX50 Fuel Transfer Pump, 230v"]
 
 
 def test_search_text_column_goes_first():
@@ -216,14 +228,14 @@ def test_missing_or_refused_sitemap_gives_no_candidates():
 
 def test_find_candidates_uses_search_when_reachable_and_stops_at_first_term_with_results():
     f, seen = fetcher(site({"/shop/search?q=F00373000": "<html>nothing</html>",
-                            "/shop/search?q=PIUSI+F00373000": RESULTS}))
+                            "/shop/search?q=8050031000670": RESULTS}))
     c = comp(website=HOME, search_status=Access.REACHABLE,
              search_address="https://www.shop.co.uk/shop/search?q={q}")
-    got = find_candidates(f, c, item(), {})
+    got = find_candidates(f, c, item(ean="8050031000670"), {})
     assert got[0] == "https://www.shop.co.uk/piusi-ex50-230v-f00373000"
     assert [u for u in seen if "search" in u] == [
         "https://www.shop.co.uk/shop/search?q=F00373000",
-        "https://www.shop.co.uk/shop/search?q=PIUSI+F00373000"]
+        "https://www.shop.co.uk/shop/search?q=8050031000670"]
 
 
 def test_find_candidates_uses_sitemap_when_search_is_not_usable():

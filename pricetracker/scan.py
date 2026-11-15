@@ -12,7 +12,7 @@ from .excel_io import read_competitors, read_items, read_links, write_competitor
 from .extract import parse_product_page
 from .fetch import Fetcher, Outcome, Page
 from .issues import IssueLog
-from .match import match_page
+from .match import PRICE_NOT_READABLE, match_page
 from .models import (ERROR, QUESTION, SOURCE_CLIENT, SOURCE_TOOL, Access, Competitor, Item, Label,
                      PriceResult, ProductLink, VatBasis)
 from .progress import Progress
@@ -25,6 +25,8 @@ MAX_SITES_AT_ONCE = 12
 BLOCKED_REMARK = "Site blocks automated reading; enter a price by hand in Product links.xlsx"
 RULES_REMARK = "Site rules do not allow automated reading; enter a price by hand in Product links.xlsx"
 NOT_FOUND_REMARK = "Not found on the site; supply a product page link in Product links.xlsx"
+NO_PRICE_REMARK = ("Product page found, but its price cannot be read automatically; "
+                   "enter a price by hand in Product links.xlsx")
 
 
 def _note_page_status(comp: Competitor, outcome: Outcome) -> None:
@@ -76,6 +78,8 @@ class _Lookup:
                          fix=f"Check the {name} of this item in {ITEMS} row {self.item.row}. "
                              f"If the page is a different product, correct the link in {LINKS}.")
         if m.label == Label.NOT_FOUND:
+            if m.remark == PRICE_NOT_READABLE:  # the right page, but no machine-readable price
+                return self.result(Label.ERROR, url, NO_PRICE_REMARK)
             return self.result(Label.ERROR, url, m.remark) if trusted else None
         if m.offer is None:  # several prices, none identifiable
             self.log.add(QUESTION, LINKS, self.link.row or None, self.subject, m.remark, url,
@@ -105,7 +109,7 @@ class _Lookup:
             if page.outcome == Outcome.OK:
                 res = self.from_page(page, ln.url, trusted)
                 if res is not None:
-                    return res
+                    return self.manual() if res.remark == NO_PRICE_REMARK and has_manual else res
                 if ln.locked:
                     return self.result(Label.ERROR, ln.url, "The page no longer shows this item")
             elif page.outcome in (Outcome.REFUSED, Outcome.DISALLOWED):
@@ -143,8 +147,8 @@ class _Lookup:
             if res.label == Label.VERIFIED:
                 best = (res, url)
                 break
-            if best is None:
-                best = (res, url)
+            if best is None or (best[0].label == Label.ERROR and res.label != Label.ERROR):
+                best = (res, url)  # a priced page beats a page whose price cannot be read
         if best is not None:
             res, url = best
             if not ln.url_readonly and not ln.locked:

@@ -52,7 +52,7 @@ def parse_price(value) -> Decimal | None:
         amount = Decimal(m.group(1).replace(",", ""))
     except InvalidOperation:
         return None
-    return amount if amount > 0 else None
+    return amount if amount > Decimal("0.01") else None  # 0.01 is a 'call for price' placeholder
 
 
 def _s(value) -> str:

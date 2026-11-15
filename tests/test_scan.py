@@ -133,7 +133,7 @@ def test_site_unreachable_gives_error_with_remark_site_did_not_respond():
 def test_client_link_with_unreadable_price_is_an_error():
     res, _, _, _, _ = do({K33: "<html><head><meta property='og:type' content='product'></head><body>call us</body></html>"},
                          link(item_code="553000", url=K33, source="Entered by client"))
-    assert res.label == Label.ERROR and res.remark == "Price not readable on the page"
+    assert res.label == Label.ERROR and res.remark.startswith("Product page found, but its price cannot be read")
 
 
 # ---------- lookup: no link ----------
@@ -153,6 +153,21 @@ def test_first_verified_candidate_wins_over_an_earlier_unverified_one():
                            other: product(mpn="558000", price="170.53"),
                            K33 + "-x": product()})
     assert res.label == Label.VERIFIED and res.url == K33 + "-x" and res.price_inc == D("146.14")
+
+
+def test_page_found_without_readable_price_is_reported_as_such_and_link_is_saved():
+    hidden = ('<script type="application/ld+json">{"@type":"Product","name":"Piusi K33 Fuel Flow Meter 553000",'
+              '"offers":[[]]}</script>')
+    res, lk, _, _, _ = do({A + "/shop/search": results_page((K33, "Piusi K33 Fuel Flow Meter")), K33: hidden})
+    assert res.label == Label.ERROR and res.url == K33 and lk.url == K33
+    assert res.remark.startswith("Product page found, but its price cannot be read")
+
+
+def test_manual_price_is_used_when_the_page_has_no_readable_price():
+    hidden = '<script type="application/ld+json">{"@type":"Product","name":"Piusi K33 553000","offers":[[]]}</script>'
+    lk = link(item_code="553000", url=K33, manual_price="100", manual_vat=VatBasis.EX, manual_date=date(2026, 11, 10))
+    res, _, _, _, _ = do({K33: hidden}, lk)
+    assert res.label == Label.MANUAL and res.price_ex == D("100.00")
 
 
 def test_no_link_only_name_match_gives_unverified_and_saves_link():

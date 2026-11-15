@@ -78,7 +78,7 @@ def test_code_in_text_but_a_different_product_name_is_only_unverified():
 def test_page_stating_a_different_mpn_is_not_verified_by_text():
     r = match_page(item(), page(mpn="F00371000", text="EX50 12v. Also available: F00373000"), URL, False)
     assert r.label == Label.UNVERIFIED          # name still matches, so it is offered as unverified
-    assert r.observed == [("MPN", "F00373000", "F00371000")]
+    assert r.observed == []                     # the client's code is on the page: the other code is the shop's own
 
 
 def test_code_on_listing_page_is_not_verified():
@@ -102,6 +102,41 @@ def test_similar_name_on_a_page_stating_a_different_mpn_is_not_found():
     it = item(code="558000", name="Piusi K33 Oil Flow Meter")
     r = match_page(it, page(name="Piusi K33 Fuel Flow Meter", mpn="553000"), URL, False)
     assert r.label == Label.NOT_FOUND
+
+
+@pytest.mark.parametrize("page_name", [
+    "PIUSI E140 230v Electric Diesel Transfer Pump",       # model EX50 missing
+    "Piusi EX50 12v Fuel Transfer Pump",                   # a different voltage
+    "Piusi Cube 90 Fuel Transfer Pump 230v",
+])
+def test_name_match_needs_the_model_and_the_same_voltage(page_name):
+    assert match_page(item(), page(name=page_name), URL, False).label == Label.NOT_FOUND
+
+
+def test_name_match_without_any_voltage_on_the_page_is_still_offered():
+    r = match_page(item(), page(name="Piusi EX50 ATEX Fuel Transfer Pump"), URL, False)
+    assert r.label == Label.UNVERIFIED
+
+
+def test_two_digit_model_numbers_count():
+    it = item(code="57500C", name="PIUSI Cube 56 Fuel Pump Kit, 230v")
+    assert match_page(it, page(name="Piusi Cube 70 Fuel Pump Kit 230v"), URL, False).label == Label.NOT_FOUND
+    assert match_page(it, page(name="Piusi Cube 56 Fuel Pump Kit 230v"), URL, False).label == Label.UNVERIFIED
+
+
+def test_multi_pack_page_is_only_unverified():
+    it = item(code="70062", name="Cim-Tek Hydrosorb Fuel Filter 70062 (10 micron)")
+    r = match_page(it, page(name="Cim-Tek 70062 Hydrosorb Fuel Filter Element Multi Pack"), URL, False)
+    assert r.label == Label.UNVERIFIED and "multi-pack" in r.remark
+    single = match_page(it, page(name="Cim-Tek 70062 Hydrosorb Fuel Filter Element"), URL, False)
+    assert single.label == Label.VERIFIED
+
+
+def test_page_that_is_the_item_but_has_no_readable_price():
+    r = match_page(item(), page(name="PIUSI EX50 Fuel Transfer Pump F00373000", offers=[]), URL, False)
+    assert r.label == Label.NOT_FOUND and r.remark == "Price not readable on the page"
+    other = match_page(item(), page(name="Garden hose", offers=[]), URL, False)
+    assert other.label == Label.NOT_FOUND and other.remark == "No matching product page"
 
 
 def test_low_name_overlap_is_not_found():
@@ -180,6 +215,12 @@ def test_observed_ignores_formatting_differences_and_missing_values():
     assert match_page(item(), page(), URL, True).observed == []       # page states no codes
     no_ean = match_page(item(ean=""), page(mpn="F00373000", gtin="8050031000670"), URL, True)
     assert no_ean.observed == []
+
+
+def test_shops_own_stock_code_is_not_reported_when_the_clients_code_is_on_the_page():
+    it = item(code="ZVA25", name="Elaflex ZVA25 Automatic Nozzle")
+    r = match_page(it, page(name="ZVA 25 High Speed Automatic Fuel Nozzle", mpn="PF5002"), URL, False)
+    assert r.label == Label.VERIFIED and r.observed == []
 
 
 def test_observed_uses_the_chosen_offers_codes():

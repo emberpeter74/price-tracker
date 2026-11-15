@@ -41,7 +41,7 @@ def find_search_address(home_html: str, home_url: str) -> str:
         for inp in form.css("input"):
             name = (inp.attributes.get("name") or "").strip()
             kind = (inp.attributes.get("type") or "text").lower()
-            if name and kind in ("search", "text") and (kind == "search" or name.lower() in SEARCH_INPUT_NAMES):
+            if name and kind in ("search", "text") and (kind == "search" or _is_search_name(name)):
                 field = name
                 break
         if field is None:
@@ -52,8 +52,16 @@ def find_search_address(home_html: str, home_url: str) -> str:
         parts = urlsplit(action)
         base = f"{parts.scheme}://{parts.netloc}{parts.path or '/'}"
         fixed = "&".join(p for p in (parts.query, urlencode(hidden)) if p)
-        return f"{base}?{fixed + '&' if fixed else ''}{field}={{q}}"
+        return f"{base}?{fixed + '&' if fixed else ''}{quote_plus(field)}={{q}}"
+    # OpenCart shops have a search box without a form
+    if tree.css_first('input[name="search"]'):
+        return urljoin(home_url, "/index.php?route=product/search&search={q}")
     return ""
+
+
+def _is_search_name(name: str) -> bool:
+    name = name.lower()
+    return name in SEARCH_INPUT_NAMES or any(w in name for w in ("search", "keyword", "query"))
 
 
 def _search_url(address: str, term: str) -> str:
@@ -87,11 +95,12 @@ def check_site(fetcher: Fetcher, comp: Competitor, probe_term: str) -> None:
 
 
 def search_terms(item: Item) -> list[str]:
+    """What to type into a site's search: the item code (MPN), then the EAN, then the name.
+    A 'Search text' the client filled in goes first."""
     terms = [item.search_text]
     if not is_family_code(item.code):
         terms.append(item.code)
-        if item.brand:
-            terms.append(f"{item.brand} {item.code}")
+    terms.append(item.ean)
     terms.append(item.name)
     out = []
     for t in terms:

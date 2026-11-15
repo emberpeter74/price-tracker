@@ -90,6 +90,7 @@ def test_price_strings_with_pound_sign_and_commas_parse():
     assert parse_price(399.6) == D("399.6") and parse_price("1 234,50") is None
     assert parse_price("") is None and parse_price(None) is None and parse_price("POA") is None
     assert parse_price("0") is None and parse_price("-5") is None
+    assert parse_price("0.01") is None and parse_price("0.02") == D("0.02")     # 0.01 = "call for price"
 
 
 def test_microdata_fallback():
