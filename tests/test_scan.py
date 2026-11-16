@@ -1,5 +1,5 @@
 import io
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal as D
 
 import httpx
@@ -10,9 +10,9 @@ from conftest import COMP_HEADERS, ITEM_HEADERS, LINK_HEADERS, NOW, comp, item, 
 from pricetracker.excel_io import InputError, read_competitors, read_links
 from pricetracker.fetch import Fetcher
 from pricetracker.issues import IssueLog
-from pricetracker.models import Access, Label, VatBasis
+from pricetracker.models import Access, Connection, Label, VatBasis
 from pricetracker.runfile import read_run
-from pricetracker.scan import lookup, run_scan
+from pricetracker.scan import lookup, run_scan, site_check_due
 
 A = "https://www.agriemach.com"
 K33 = A + "/553000-piusi-k33-fuel-flow-meter"
@@ -239,7 +239,30 @@ def test_observed_codes_become_questions_with_seen_value():
 def test_page_status_reachable_is_not_downgraded_by_one_refusal():
     co = comp(page_status=Access.REACHABLE)
     do({K33: (403, "no")}, link(item_code="553000", url=K33), co=co)
-    assert co.page_status == Access.REACHABLE
+    assert co.page_status == Access.REACHABLE and co.page_note == ""
+
+
+def test_page_note_follows_page_status():
+    _, _, _, co, _ = do({K33: (403, "no")}, link(item_code="553000", url=K33))
+    assert co.page_status == Access.REFUSING and co.page_note == "blocked by the site (403)"
+    do({K33: product()}, link(item_code="553000", url=K33), co=co)
+    assert co.page_status == Access.REACHABLE and co.page_note == ""
+
+
+def test_site_check_due_rules():
+    ok = comp(search_status=Access.REACHABLE, page_status=Access.REACHABLE)
+    ok.connection, ok.site_checked = Connection.HTTP2, NOW - timedelta(days=60)
+    assert not site_check_due([ok], NOW)                       # working sites are not re-checked
+    bad = comp(search_status=Access.REFUSING)
+    bad.connection, bad.site_checked = Connection.HTTP1, NOW - timedelta(days=31)
+    assert site_check_due([bad], NOW)
+    bad.site_checked = NOW - timedelta(days=29)
+    assert not site_check_due([bad], NOW)
+    neither = comp(search_status=Access.REACHABLE, page_status=Access.REACHABLE)
+    neither.connection = Connection.NEITHER                    # never checked -> due
+    assert site_check_due([neither], NOW)
+    new = comp(search_status=Access.REACHABLE)                  # file from before this change
+    assert site_check_due([new], NOW)
 
 
 # ---------- run_scan ----------
@@ -349,6 +372,50 @@ def test_ctrl_c_still_writes_partial_run_file_and_links(tmp_path, make_xlsx):
     assert [(r.item_code, r.label) for r in rows] == [("553000", Label.VERIFIED)]
     assert read_links(inp / "Product links.xlsx")[0].url == K33
     assert (out / "Data issues.xlsx").exists() and "Stopped early" in buf.getvalue()
+
+
+def test_ctrl_c_keeps_connection_found_so_far(tmp_path, make_xlsx):
+    inp, out = workspace(tmp_path, make_xlsx, comps=[
+        ["Piusi Equipment", "Agriemach", A + "/", "Reachable", None, "Ex VAT", None, A + "/shop/search?q={q}"]])
+    f, _ = make_fetcher(SITE, raise_on=lambda url, n: "q=558000" in url)
+    with pytest.raises(KeyboardInterrupt):
+        run_scan(inp, out, fetcher=f, now=NOW, out=io.StringIO())
+    saved = read_competitors(inp / "Competitors.xlsx")[0]
+    assert saved.connection == Connection.HTTP2 and saved.site_checked == NOW
+
+
+def test_run_scan_records_connection_note_and_site_checked(tmp_path, make_xlsx):
+    inp, out = workspace(
+        tmp_path, make_xlsx,
+        items=[["553000", "Piusi K33 Fuel Flow Meter", "Piusi", "Piusi Equipment", 150, None, None]],
+        comps=[["Piusi Equipment", "Agriemach", A + "/", None, None, "Ex VAT", None, None]],
+        links=[["553000", "Agriemach", K33, "Entered by client", None, None, None, None, None, None]])
+    f, _ = make_fetcher({A + "/": (403, "no"), K33: product()})
+    rows = read_run(run_scan(inp, out, fetcher=f, now=NOW, out=io.StringIO()))
+    assert [r.label for r in rows] == [Label.CLIENT_LINK]
+    saved = read_competitors(inp / "Competitors.xlsx")[0]
+    assert saved.connection == Connection.NEITHER and saved.site_checked == NOW
+    assert saved.search_status == Access.REFUSING and saved.page_status == Access.REACHABLE
+    ws = openpyxl.load_workbook(inp / "Competitors.xlsx").active
+    notes = [ws.cell(2, c).value for c in range(1, ws.max_column + 1)
+             if ws.cell(1, c).value == "Status note"]
+    assert notes == ["Search: Home page blocked by the site (403)"]
+
+
+def test_second_run_skips_site_check_but_recheck_after_30_days(tmp_path, make_xlsx):
+    inp, out = workspace(tmp_path, make_xlsx, comps=[
+        ["Piusi Equipment", "Agriemach", A + "/", None, None, "Ex VAT", None, None]], links=[
+        ["553000", "Agriemach", K33, "Entered by client", None, None, None, None, None, None],
+        ["558000", "Agriemach", K33, "Entered by client", None, None, None, None, None, None]])
+    pages = {A + "/": (403, "no"), K33: product()}
+    run_scan(inp, out, fetcher=make_fetcher(pages)[0], now=NOW, out=io.StringIO())
+    f, seen = make_fetcher(pages)
+    run_scan(inp, out, fetcher=f, now=NOW + timedelta(days=10), out=io.StringIO())
+    assert A + "/" not in seen
+    f, seen = make_fetcher(pages)
+    run_scan(inp, out, fetcher=f, now=NOW + timedelta(days=40), out=io.StringIO())
+    assert A + "/" in seen
+    assert read_competitors(inp / "Competitors.xlsx")[0].site_checked == NOW + timedelta(days=40)
 
 
 def test_hung_site_does_not_stop_other_sites(tmp_path, make_xlsx):

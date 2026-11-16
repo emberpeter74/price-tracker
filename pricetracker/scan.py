@@ -4,17 +4,17 @@ from __future__ import annotations
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, wait
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from .discover import check_site, find_candidates
+from .discover import RULES_NOTE, check_site, find_candidates
 from .excel_io import read_competitors, read_items, read_links, write_competitors, write_links
 from .extract import parse_product_page
 from .fetch import Fetcher, Outcome, Page
 from .issues import IssueLog
 from .match import PRICE_NOT_READABLE, match_page
-from .models import (ERROR, QUESTION, SOURCE_CLIENT, SOURCE_TOOL, Access, Competitor, Item, Label,
-                     PriceResult, ProductLink, VatBasis)
+from .models import (ERROR, QUESTION, SOURCE_CLIENT, SOURCE_TOOL, Access, Competitor, Connection,
+                     Item, Label, PriceResult, ProductLink, VatBasis)
 from .progress import Progress
 from .runfile import run_file_name, write_run
 from .urls import host_of
@@ -22,6 +22,7 @@ from .validate import COMPS, ITEMS, LINKS, is_family_code, validate
 from .vat import resolve_vat
 
 MAX_SITES_AT_ONCE = 12
+RECHECK_AFTER = timedelta(days=30)
 BLOCKED_REMARK = "Site blocks automated reading; enter a price by hand in Product links.xlsx"
 RULES_REMARK = "Site rules do not allow automated reading; enter a price by hand in Product links.xlsx"
 NOT_FOUND_REMARK = "Not found on the site; supply a product page link in Product links.xlsx"
@@ -29,14 +30,33 @@ NO_PRICE_REMARK = ("Product page found, but its price cannot be read automatical
                    "enter a price by hand in Product links.xlsx")
 
 
-def _note_page_status(comp: Competitor, outcome: Outcome) -> None:
+_UNUSABLE = (Access.REFUSING, Access.UNREACHABLE)
+
+
+def _note_page_status(comp: Competitor, page: Page) -> None:
+    outcome = page.outcome
     if outcome == Outcome.OK:
-        comp.page_status = Access.REACHABLE
-    elif comp.page_status is None:
-        if outcome in (Outcome.REFUSED, Outcome.DISALLOWED):
-            comp.page_status = Access.REFUSING
-        elif outcome == Outcome.UNREACHABLE:
-            comp.page_status = Access.UNREACHABLE
+        comp.page_status, comp.page_note = Access.REACHABLE, ""
+        return
+    notes = {Outcome.DISALLOWED: RULES_NOTE, Outcome.REFUSED: f"blocked by the site ({page.status})",
+             Outcome.UNREACHABLE: "did not respond"}
+    if outcome not in notes:
+        return
+    if comp.page_status is None:
+        comp.page_status = Access.UNREACHABLE if outcome == Outcome.UNREACHABLE else Access.REFUSING
+    if comp.page_status in _UNUSABLE:
+        comp.page_note = notes[outcome]
+
+
+def site_check_due(group: list[Competitor], now: datetime) -> bool:
+    """Check a site (connection and search) when it was never checked, or when it was not
+    usable and the last check is more than RECHECK_AFTER ago."""
+    if any(c.search_status is None or c.connection is None for c in group):
+        return True
+    unusable = any(c.search_status in _UNUSABLE or c.page_status in _UNUSABLE
+                   or c.connection == Connection.NEITHER for c in group)
+    stale = any(c.site_checked is None or now - c.site_checked > RECHECK_AFTER for c in group)
+    return unusable and stale
 
 
 class _Lookup:
@@ -65,7 +85,7 @@ class _Lookup:
 
     def fetch(self, url: str) -> Page:
         page = self.fetcher.get(url)
-        _note_page_status(self.comp, page.outcome)
+        _note_page_status(self.comp, page)
         return page
 
     def from_page(self, page: Page, url: str, trusted: bool):
@@ -210,12 +230,16 @@ def run_scan(input_dir: Path, output_dir: Path, fetcher: Fetcher | None = None,
 
     def work(host: str) -> None:
         group = sites[host]
-        if any(c.search_status is None for c in group) and jobs[host]:
-            lead = group[0]
+        lead = group[0]
+        fetcher.set_connection(lead.website, next((c.connection for c in group if c.connection), None))
+        if jobs[host] and site_check_due(group, run_at):
             lead.search_address = next((c.search_address for c in group if c.search_address), "")
-            check_site(fetcher, lead, _probe_term([it for _, it in jobs[host]]))
+            _, home = fetcher.test_connection(lead.website)
+            check_site(fetcher, lead, _probe_term([it for _, it in jobs[host]]), home=home)
             for c in group:
-                c.search_status, c.search_address, c.last_checked = lead.search_status, lead.search_address, run_at
+                c.search_status, c.search_address = lead.search_status, lead.search_address
+                c.search_note, c.connection = lead.search_note, fetcher.connection(lead.website)
+                c.site_checked = c.last_checked = run_at
         cache: dict = {}
         for comp, item in jobs[host]:
             if stop.is_set():
@@ -228,8 +252,9 @@ def run_scan(input_dir: Path, output_dir: Path, fetcher: Fetcher | None = None,
                 res = PriceResult(run_at, item.code, item.name, item.group, item.client_price_ex,
                                   comp.company, None, None, "", Label.ERROR, link.url if link else "",
                                   f"Unexpected problem: {type(exc).__name__}")
-            for c in group:
-                c.page_status = comp.page_status
+            for c in group:  # saved even if the scan is stopped early
+                c.page_status, c.page_note = comp.page_status, comp.page_note
+                c.connection = fetcher.connection(lead.website)
                 c.last_checked = run_at
             with lock:
                 results.append(res)
