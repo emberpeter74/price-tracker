@@ -5,7 +5,7 @@ import httpx
 from conftest import comp, item
 from pricetracker.discover import (candidates_from_search, candidates_from_sitemap, check_site,
                                    find_candidates, find_search_address, search_terms)
-from pricetracker.fetch import Fetcher
+from pricetracker.fetch import Fetcher, Outcome, Page
 from pricetracker.models import Access
 
 HOME = "https://www.shop.co.uk/"
@@ -93,9 +93,10 @@ def test_no_form_returns_empty():
 
 # ----- checking a site -----
 
-def checked(pages, robots=None, **kw):
+def checked(pages, robots=None, search_note="", **kw):
     f, seen = fetcher(site(pages, robots))
     c = comp(company="Shop", website=HOME, **kw)
+    c.search_note = search_note
     check_site(f, c, "F00373000")
     return c, seen
 
@@ -103,29 +104,39 @@ def checked(pages, robots=None, **kw):
 def test_check_site_home_refused_sets_refusing():
     c, _ = checked({"/": (403, "no")})
     assert c.search_status == Access.REFUSING and c.search_address == ""
+    assert c.search_note == "Home page blocked by the site (403)"
+
+
+def test_check_site_home_forbidden_by_robots():
+    c, _ = checked({"/": FORM_Q}, robots="User-agent: *\nDisallow: /\n")
+    assert c.search_status == Access.REFUSING
+    assert c.search_note == "Home page forbidden by the site's rules (robots.txt)"
 
 
 def test_check_site_home_unreachable_sets_unreachable():
     c, _ = checked({"/": (500, "x")})
-    assert c.search_status == Access.UNREACHABLE
+    assert c.search_status == Access.UNREACHABLE and c.search_note == "Site did not respond"
     d, _ = checked({})          # home page "not found", as RPM Fuels
     assert d.search_status == Access.UNREACHABLE
+    assert d.search_note == "Home page not found (404) – check the website address"
 
 
 def test_check_site_no_form_sets_search_not_worked_out():
     c, _ = checked({"/": "<html><body>no search here</body></html>"})
     assert c.search_status == Access.NO_SEARCH and c.search_address == ""
+    assert c.search_note == "No search box found on the home page"
 
 
 def test_check_site_search_disallowed_by_robots_sets_refusing_and_keeps_no_address():
     c, seen = checked({"/": FORM_Q, "/shop/search": RESULTS}, robots="User-agent: *\nDisallow: /shop/search\n")
     assert c.search_status == Access.REFUSING and c.search_address == ""
+    assert c.search_note == "Search forbidden by the site's rules (robots.txt)"
     assert not any("/shop/search" in u for u in seen)
 
 
 def test_check_site_working_search_sets_reachable_and_address():
-    c, seen = checked({"/": FORM_Q, "/shop/search": RESULTS})
-    assert c.search_status == Access.REACHABLE
+    c, seen = checked({"/": FORM_Q, "/shop/search": RESULTS}, search_note="old")
+    assert c.search_status == Access.REACHABLE and c.search_note == ""
     assert c.search_address == "https://www.shop.co.uk/shop/search?q={q}"
     assert seen[-1] == "https://www.shop.co.uk/shop/search?q=F00373000"
 
@@ -133,8 +144,9 @@ def test_check_site_working_search_sets_reachable_and_address():
 def test_check_site_search_that_fails_is_not_worked_out():
     c, _ = checked({"/": FORM_Q, "/shop/search": (404, "x")})
     assert c.search_status == Access.NO_SEARCH and c.search_address == ""
+    assert c.search_note == "Search did not return a usable page"
     d, _ = checked({"/": FORM_Q, "/shop/search": (403, "x")})
-    assert d.search_status == Access.REFUSING
+    assert d.search_status == Access.REFUSING and d.search_note == "Search blocked by the site (403)"
 
 
 def test_check_site_keeps_existing_address_and_only_retests_it():
@@ -142,6 +154,18 @@ def test_check_site_keeps_existing_address_and_only_retests_it():
     assert c.search_status == Access.REACHABLE
     assert c.search_address == "https://www.shop.co.uk/find?term={q}"
     assert not any(u == HOME for u in seen)
+
+
+def test_check_site_client_address_that_does_not_respond():
+    c, _ = checked({"/find": (500, "x")}, search_address="https://www.shop.co.uk/find?term={q}")
+    assert c.search_status == Access.UNREACHABLE and c.search_note == "Search did not respond"
+
+
+def test_check_site_uses_given_home_page_without_fetching_it():
+    f, seen = fetcher(site({"/shop/search": RESULTS}))
+    c = comp(company="Shop", website=HOME)
+    check_site(f, c, "F00373000", home=Page(Outcome.OK, HOME, 200, FORM_Q))
+    assert c.search_status == Access.REACHABLE and HOME not in seen
 
 
 # ----- search terms -----

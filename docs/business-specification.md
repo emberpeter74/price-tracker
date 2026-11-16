@@ -109,11 +109,13 @@ Websites behave differently for a search and for a single product page. For exam
 | Unreachable | The site did not respond. | The site did not respond. |
 | Search not worked out | The tool could not work out how to search the site. A client-supplied link is needed. | – |
 
-Every run checks the sites that have no status yet, so the first run fills the list and a competitor added later is checked on the next run. A refusal page is never read as if it were a product page.
+Every run checks the sites that have no status yet, so the first run fills the list and a competitor added later is checked on the next run. A site that is Refusing or Unreachable is checked again when its last check is more than 30 days old. The reason a site does not work (forbidden by its rules, blocked, not found, no search box) is written in plain words in the Status note column. A refusal page is never read as if it were a product page.
 
 ### 4.6 Being a polite visitor
 
 The tool identifies itself honestly, follows each site's published rules for automated visitors, and waits between requests to the same site (several sites ask for 10–20 seconds). Different sites are visited in parallel.
+
+Some sites accept only one of the two connection types (HTTP/2 or HTTP/1.1). When the tool checks a site, it tries HTTP/2 and, if the site refuses, tries HTTP/1.1 once, and remembers which one works. If the remembered one stops working, the site is tested again once in that scan. Apart from this, a refused page is never retried.
 
 **Consequence:** a first run on 50 items is expected to take roughly 15–40 minutes. Later runs are faster because links are already known.
 
@@ -153,6 +155,9 @@ All input files follow the same rules: one header row, one record per row, every
 | Product page status | Tool | Reachable / Refusing / Unreachable. Empty means not yet checked. |
 | VAT basis | Tool, confirmed by client | Inc VAT / Ex VAT / Both shown / Unknown |
 | Last checked | Tool | |
+| Connection | Tool | HTTP/2 / HTTP/1.1 / Neither. Empty means not yet tested. |
+| Status note | Tool | Plain-words reason the search or the product pages do not work. |
+| Site checked | Tool | When the connection and search were last checked. |
 
 ### 5.3 `Product links.xlsx` – one row per item per competitor
 
@@ -271,5 +276,6 @@ The first live scans against the real sites led to these refinements. Each was r
 | New result: "Product page found, but its price cannot be read automatically". | Several sites publish no machine-readable price. Reporting them as "not found" was misleading. |
 | A different MPN on a competitor's page is only reported when the client's code is nowhere on that page. | Shops publish their own stock codes in the MPN field, which flooded the issues file. |
 | `Competitors.xlsx` has an extra tool column, `Search address`. | So a worked-out search is remembered between scans. |
+| `Competitors.xlsx` has extra tool columns `Connection`, `Status note` and `Site checked`; refusing sites are re-checked after 30 days. | A site refused HTTP/2 requests but served HTTP/1.1, and refusal reasons were otherwise lost. |
 | The comparison workbook has an extra sheet, `Unverified matches`. | So name-only matches can be checked by hand without mixing them into the comparison. |
 | Test fixtures are small hand-made pages, not saved copies of shop pages. | Other companies' pages should not be redistributed. |

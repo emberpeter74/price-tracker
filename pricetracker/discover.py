@@ -7,7 +7,7 @@ from urllib.parse import quote_plus, urlencode, urljoin, urlsplit
 
 from selectolax.lexbor import LexborHTMLParser as HTMLParser
 
-from .fetch import Fetcher, Outcome
+from .fetch import Fetcher, Outcome, Page
 from .match import name_overlap, norm_code
 from .models import Access, Competitor, Item
 from .urls import clean_link, host_of, is_product_link, same_site
@@ -68,30 +68,47 @@ def _search_url(address: str, term: str) -> str:
     return address.replace("{q}", quote_plus(term))
 
 
-def check_site(fetcher: Fetcher, comp: Competitor, probe_term: str) -> None:
-    """Fill comp.search_status and comp.search_address by trying the site's search once."""
+RULES_NOTE = "forbidden by the site's rules (robots.txt)"
+
+
+def check_site(fetcher: Fetcher, comp: Competitor, probe_term: str, home: Page | None = None) -> None:
+    """Fill comp.search_status, comp.search_address and comp.search_note by trying the site's
+    search once. `home` is the home page when the caller already loaded it."""
     address = comp.search_address
     if not address:
-        home = fetcher.get(comp.website)
-        if home.outcome in (Outcome.REFUSED, Outcome.DISALLOWED):
+        home = home or fetcher.get(comp.website)
+        if home.outcome == Outcome.DISALLOWED:
+            comp.search_status, comp.search_note = Access.REFUSING, f"Home page {RULES_NOTE}"
+            return
+        if home.outcome == Outcome.REFUSED:
             comp.search_status = Access.REFUSING
+            comp.search_note = f"Home page blocked by the site ({home.status})"
+            return
+        if home.outcome == Outcome.NOT_FOUND:
+            comp.search_status = Access.UNREACHABLE
+            comp.search_note = f"Home page not found ({home.status}) – check the website address"
             return
         if home.outcome != Outcome.OK:
-            comp.search_status = Access.UNREACHABLE
+            comp.search_status, comp.search_note = Access.UNREACHABLE, "Site did not respond"
             return
         address = find_search_address(home.html, home.url)
         if not address:
-            comp.search_status = Access.NO_SEARCH
+            comp.search_status, comp.search_note = Access.NO_SEARCH, "No search box found on the home page"
             return
     result = fetcher.get(_search_url(address, probe_term))
     if result.outcome == Outcome.OK:
-        comp.search_status, comp.search_address = Access.REACHABLE, address
-    elif result.outcome in (Outcome.REFUSED, Outcome.DISALLOWED):
+        comp.search_status, comp.search_address, comp.search_note = Access.REACHABLE, address, ""
+    elif result.outcome == Outcome.DISALLOWED:
         comp.search_status, comp.search_address = Access.REFUSING, ""
+        comp.search_note = f"Search {RULES_NOTE}"
+    elif result.outcome == Outcome.REFUSED:
+        comp.search_status, comp.search_address = Access.REFUSING, ""
+        comp.search_note = f"Search blocked by the site ({result.status})"
     elif result.outcome == Outcome.UNREACHABLE and comp.search_address:
-        comp.search_status = Access.UNREACHABLE
+        comp.search_status, comp.search_note = Access.UNREACHABLE, "Search did not respond"
     else:
         comp.search_status, comp.search_address = Access.NO_SEARCH, ""
+        comp.search_note = "Search did not return a usable page"
 
 
 def search_terms(item: Item) -> list[str]:

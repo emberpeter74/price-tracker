@@ -90,14 +90,19 @@ Rules for all three files:
 | Search status | Tool | Whether the tool can search the site (see below). |
 | Product page status | Tool | Whether the tool can read product pages on the site. |
 | VAT basis | Tool and you | Whether the site's prices are `Inc VAT` or `Ex VAT`. |
-| Last checked | Tool | |
+| Last checked | Tool | The last scan that visited the site. |
 | Search address | Tool | How the tool searches the site. Leave it alone. |
+| Connection | Tool | The connection type the site accepts: `HTTP/2`, `HTTP/1.1`, or `Neither` when the site refused both. Leave it alone. |
+| Status note | Tool | Why the search or the product pages do not work, in plain words. For example "Search: Search forbidden by the site's rules (robots.txt)" or "Search: Home page not found (404) – check the website address". Empty when everything works. |
+| Site checked | Tool | When the tool last checked the site's connection and search. |
 
 A competitor that sells products from two groups gets two rows, one per group.
 
 **To add a competitor:** add a row with the group, company and website. Leave the other columns empty. On the next scan the tool checks the site and fills in the statuses.
 
-**To have a site checked again:** clear its Search status and Product page status.
+**Sites that do not work are checked again by themselves.** If a site is Refusing or Unreachable, or its Connection is `Neither`, the tool checks it again when its Site checked date is more than 30 days old. That re-check replaces a Search status of Refusing or Unreachable, even one you typed yourself; other statuses you type are kept.
+
+**To have a site checked straight away:** clear its Search status and Connection.
 
 | Status | Meaning | What you can do |
 |---|---|---|

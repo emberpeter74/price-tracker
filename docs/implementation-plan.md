@@ -21,7 +21,7 @@
 - VAT rate is 20%. Comparison is always ex VAT.
 - The tool never changes client-filled columns and never overwrites a link with `Source = Entered by client` or `Locked = Yes`.
 - A refused or challenge response is never passed to the extractor.
-- User agent string: `PriceTrackerPOC/0.1 (price comparison tool)`. No browser impersonation, no header spoofing, no retries on a refusal.
+- User agent string: `PriceTrackerPOC/0.1 (price comparison tool)`. No browser impersonation, no header spoofing, no retries on a refusal. *(Amended 2026-11-16: when checking a site, the tool may try the other connection type, HTTP/2 or HTTP/1.1, once, and remembers which works; see `docs/superpowers/specs/2026-11-16-site-connection-design.md`.)*
 - Per-site pacing: at least 5 seconds between requests to one host, or the site's robots `Crawl-delay` if larger, capped at 30. Different hosts run in parallel.
 - Robots rules for user agent `*` are obeyed for every request.
 - All tests run offline. No test may make a network request.

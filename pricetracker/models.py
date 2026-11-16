@@ -14,6 +14,12 @@ class Access(str, Enum):
     NO_SEARCH = "Search not worked out"
 
 
+class Connection(str, Enum):
+    HTTP2 = "HTTP/2"
+    HTTP1 = "HTTP/1.1"
+    NEITHER = "Neither"
+
+
 class VatBasis(str, Enum):
     INC = "Inc VAT"
     EX = "Ex VAT"
@@ -61,6 +67,10 @@ class Competitor:
     last_checked: datetime | None
     search_address: str  # tool column: URL template containing "{q}", or ""
     row: int
+    connection: Connection | None = None  # which connection type the site accepts; None = untested
+    search_note: str = ""  # plain-words reason the search does not work
+    page_note: str = ""  # plain-words reason product pages do not work
+    site_checked: datetime | None = None  # last connection and search check
 
 
 @dataclass

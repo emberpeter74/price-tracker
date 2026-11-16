@@ -10,14 +10,16 @@ import openpyxl
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from .models import Access, Competitor, Item, ProductLink, VatBasis
+from .models import Access, Competitor, Connection, Item, ProductLink, VatBasis
 
 ITEM_COLS = {"code": "Item code (MPN)", "name": "Name", "brand": "Brand",
              "group": "Competitor group", "price": "Client price ex VAT", "ean": "EAN",
              "search": "Search text"}
 COMP_COLS = {"group": "Competitor group", "company": "Company", "website": "Website",
              "search_status": "Search status", "page_status": "Product page status",
-             "vat": "VAT basis", "checked": "Last checked", "address": "Search address"}
+             "vat": "VAT basis", "checked": "Last checked", "address": "Search address",
+             "connection": "Connection", "note": "Status note", "site_checked": "Site checked"}
+_SEARCH_PREFIX, _PAGE_PREFIX = "Search: ", "Product pages: "
 LINK_COLS = {"code": "Item code", "company": "Company", "url": "Product page link",
              "source": "Source", "locked": "Locked", "result": "Last result",
              "checked": "Last checked", "mprice": "Manual price",
@@ -85,6 +87,24 @@ def _yes(value) -> bool:
     return text(value).casefold() in {"yes", "y", "true", "1", "x"}
 
 
+def join_note(search_note: str, page_note: str) -> str:
+    """The Status note cell: one line per part that has something to say."""
+    parts = [(_SEARCH_PREFIX, search_note), (_PAGE_PREFIX, page_note)]
+    return "\n".join(prefix + note for prefix, note in parts if note)
+
+
+def split_note(cell) -> tuple[str, str]:
+    """(search note, product page note) from a Status note cell; other lines are ignored."""
+    search = page = ""
+    for line in ("" if cell is None else str(cell)).splitlines():
+        line = line.strip()
+        if line.startswith(_SEARCH_PREFIX):
+            search = line[len(_SEARCH_PREFIX):].strip()
+        elif line.startswith(_PAGE_PREFIX):
+            page = line[len(_PAGE_PREFIX):].strip()
+    return search, page
+
+
 # ---------- generic sheet access ----------
 
 def _norm(header) -> str:
@@ -142,7 +162,8 @@ def read_competitors(path: Path) -> list[Competitor]:
     return [Competitor(text(v["group"]), text(v["company"]), text(v["website"]),
                        _enum(Access, v["search_status"]), _enum(Access, v["page_status"]),
                        _enum(VatBasis, v["vat"]) or VatBasis.UNKNOWN, _datetime(v["checked"]),
-                       text(v["address"]), r)
+                       text(v["address"]), r, _enum(Connection, v["connection"]),
+                       *split_note(v["note"]), _datetime(v["site_checked"]))
             for r, v in _rows(ws, cols)]
 
 
@@ -241,6 +262,9 @@ def write_competitors(path: Path, rows: list[Competitor]) -> Path:
             ws.cell(r, c["vat"]).value = comp.vat_basis.value
         ws.cell(r, c["checked"]).value = comp.last_checked
         ws.cell(r, c["address"]).value = comp.search_address or None
+        ws.cell(r, c["connection"]).value = _val(comp.connection)
+        ws.cell(r, c["note"]).value = join_note(comp.search_note, comp.page_note) or None
+        ws.cell(r, c["site_checked"]).value = comp.site_checked
     return save_workbook(wb, path)
 
 
