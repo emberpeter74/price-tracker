@@ -418,6 +418,33 @@ def test_second_run_skips_site_check_but_recheck_after_30_days(tmp_path, make_xl
     assert read_competitors(inp / "Competitors.xlsx")[0].site_checked == NOW + timedelta(days=40)
 
 
+def test_unreachable_home_is_not_rechecked_before_30_days(tmp_path, make_xlsx):
+    inp, out = workspace(tmp_path, make_xlsx, comps=[
+        ["Piusi Equipment", "Agriemach", A + "/", None, None, "Ex VAT", None, None]], links=[
+        ["553000", "Agriemach", K33, "Entered by client", None, None, None, None, None, None],
+        ["558000", "Agriemach", K33, "Entered by client", None, None, None, None, None, None]])
+    pages = {A + "/": httpx.ConnectError("down"), K33: product()}
+    run_scan(inp, out, fetcher=make_fetcher(pages)[0], now=NOW, out=io.StringIO())
+    assert read_competitors(inp / "Competitors.xlsx")[0].search_status == Access.UNREACHABLE
+    f, seen = make_fetcher(pages)
+    run_scan(inp, out, fetcher=f, now=NOW + timedelta(days=10), out=io.StringIO())
+    assert A + "/" not in seen
+
+
+def test_client_search_status_is_kept_when_only_the_connection_is_untested(tmp_path, make_xlsx):
+    inp, out = workspace(tmp_path, make_xlsx, comps=[
+        ["Piusi Equipment", "Agriemach", A + "/", "Search not worked out", "Reachable", "Ex VAT",
+         None, None]], links=[
+        ["553000", "Agriemach", K33, "Entered by client", None, None, None, None, None, None],
+        ["558000", "Agriemach", K33, "Entered by client", None, None, None, None, None, None]])
+    f, seen = make_fetcher(SITE)
+    run_scan(inp, out, fetcher=f, now=NOW, out=io.StringIO())
+    saved = read_competitors(inp / "Competitors.xlsx")[0]
+    assert saved.connection == Connection.HTTP2 and seen.count(A + "/") == 1
+    assert saved.search_status == Access.NO_SEARCH and saved.search_address == ""
+    assert not any("/shop/search" in u for u in seen)
+
+
 def test_hung_site_does_not_stop_other_sites(tmp_path, make_xlsx):
     inp, out = workspace(tmp_path, make_xlsx)
     pages = dict(SITE)

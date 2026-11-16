@@ -177,7 +177,8 @@ class Fetcher:
         page = self._get_once(url, max_bytes)
         if page.outcome == Outcome.REFUSED:
             host = self._host(url)
-            if not host.tested:
+            # A site that refused both types waits for its monthly re-check instead.
+            if not host.tested and host.connection != Connection.NEITHER:
                 before = self._client_key(host)
                 self.test_connection(self._root(url) + "/")
                 if host.connection != Connection.NEITHER and self._client_key(host) != before:

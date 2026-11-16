@@ -100,7 +100,7 @@ A competitor that sells products from two groups gets two rows, one per group.
 
 **To add a competitor:** add a row with the group, company and website. Leave the other columns empty. On the next scan the tool checks the site and fills in the statuses.
 
-**Sites that do not work are checked again by themselves.** If a site is Refusing or Unreachable, or its Connection is `Neither`, the tool checks it again when its Site checked date is more than 30 days old.
+**Sites that do not work are checked again by themselves.** If a site is Refusing or Unreachable, or its Connection is `Neither`, the tool checks it again when its Site checked date is more than 30 days old. That re-check replaces a Search status of Refusing or Unreachable, even one you typed yourself; other statuses you type are kept.
 
 **To have a site checked straight away:** clear its Search status and Connection.
 

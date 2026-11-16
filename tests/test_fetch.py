@@ -260,6 +260,13 @@ def test_robots_reloaded_after_switch_when_it_was_refused():
     assert "/robots.txt" in seen["h1"] and "/p" not in seen["h1"]
 
 
+def test_neither_site_is_not_retested_on_a_refused_page():
+    f, seen = make2({"/": CHALLENGE, "/p": CHALLENGE}, {"/": CHALLENGE})
+    f.set_connection("https://a.co.uk/", Connection.NEITHER)
+    assert f.get("https://a.co.uk/p").outcome == Outcome.REFUSED
+    assert pages_only(seen["h2"]) == ["/p"] and seen["h1"] == []
+
+
 def test_preset_connection_is_used_without_testing():
     f, seen = make2({"/p": (200, HTML)}, {"/p": (200, HTML)})
     f.set_connection("https://a.co.uk/", Connection.HTTP1)

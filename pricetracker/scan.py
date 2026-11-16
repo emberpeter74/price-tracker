@@ -48,15 +48,22 @@ def _note_page_status(comp: Competitor, page: Page) -> None:
         comp.page_note = notes[outcome]
 
 
-def site_check_due(group: list[Competitor], now: datetime) -> bool:
-    """Check a site (connection and search) when it was never checked, or when it was not
-    usable and the last check is more than RECHECK_AFTER ago."""
-    if any(c.search_status is None or c.connection is None for c in group):
-        return True
+FULL_CHECK, CONNECTION_CHECK = "full", "connection"
+
+
+def site_check_due(group: list[Competitor], now: datetime) -> str:
+    """FULL_CHECK (connection and search) when the search was never checked, or when the site
+    was not usable and the last check is more than RECHECK_AFTER ago. CONNECTION_CHECK when
+    only the connection of a usable site is unknown: the Search status is kept, because the
+    client may have typed it. "" when nothing is due."""
     unusable = any(c.search_status in _UNUSABLE or c.page_status in _UNUSABLE
                    or c.connection == Connection.NEITHER for c in group)
     stale = any(c.site_checked is None or now - c.site_checked > RECHECK_AFTER for c in group)
-    return unusable and stale
+    if any(c.search_status is None for c in group) or (unusable and stale):
+        return FULL_CHECK
+    if not unusable and any(c.connection is None for c in group):
+        return CONNECTION_CHECK
+    return ""
 
 
 class _Lookup:
@@ -232,13 +239,17 @@ def run_scan(input_dir: Path, output_dir: Path, fetcher: Fetcher | None = None,
         group = sites[host]
         lead = group[0]
         fetcher.set_connection(lead.website, next((c.connection for c in group if c.connection), None))
-        if jobs[host] and site_check_due(group, run_at):
-            lead.search_address = next((c.search_address for c in group if c.search_address), "")
+        due = site_check_due(group, run_at) if jobs[host] else ""
+        if due:
             _, home = fetcher.test_connection(lead.website)
-            check_site(fetcher, lead, _probe_term([it for _, it in jobs[host]]), home=home)
+            if due == FULL_CHECK:
+                lead.search_address = next((c.search_address for c in group if c.search_address), "")
+                check_site(fetcher, lead, _probe_term([it for _, it in jobs[host]]), home=home)
+                for c in group:
+                    c.search_status, c.search_address = lead.search_status, lead.search_address
+                    c.search_note = lead.search_note
             for c in group:
-                c.search_status, c.search_address = lead.search_status, lead.search_address
-                c.search_note, c.connection = lead.search_note, fetcher.connection(lead.website)
+                c.connection = fetcher.connection(lead.website)
                 c.site_checked = c.last_checked = run_at
         cache: dict = {}
         for comp, item in jobs[host]:
