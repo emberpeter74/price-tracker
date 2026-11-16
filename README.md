@@ -13,7 +13,7 @@ This is a proof of concept built for a real client in the fuel-handling equipmen
 - **Never guesses a match.** Every price carries a label: `Verified` (the item code is on the page), `Client link`, `Manual price`, or `Unverified` (matched by name only, kept out of the comparison).
 - **Handles VAT.** It records prices ex and inc VAT, reading both from the page where shown, and marks any figure it had to calculate.
 - **Reports data problems.** Duplicate codes, unusable links, mismatching product codes and similar go to `Data issues.xlsx`, each with the row and what to change. The scan carries on with the data that is usable.
-- **Is a polite visitor.** It obeys `robots.txt`, identifies itself honestly, waits between requests to the same site, and does not try to get past sites that refuse automated access. For those, the user can enter a price by hand.
+- **Is a polite visitor.** It obeys `robots.txt`, identifies itself honestly, waits between requests to the same site, and does not try to get past sites that refuse automated access. For those, the user can enter a price by hand. The only second attempt it makes: when checking a site it tries HTTP/2 and then, if refused, HTTP/1.1 once, and remembers which works.
 
 ## Quick start
 
@@ -69,7 +69,7 @@ Product links┘      │                         │                           
 |---|---|
 | [`excel_io.py`](pricetracker/excel_io.py) | Reads and writes the Excel files; tolerant of what Excel does to codes and numbers. |
 | [`validate.py`](pricetracker/validate.py) | Checks the input, keeps what is usable, reports the rest. |
-| [`fetch.py`](pricetracker/fetch.py) | The only module that touches the network: `robots.txt`, per-site pacing, refusal detection. |
+| [`fetch.py`](pricetracker/fetch.py) | The only module that touches the network: `robots.txt`, per-site pacing, connection type per site, refusal detection. |
 | [`discover.py`](pricetracker/discover.py) | Works out a site's search form; finds candidate product pages by search or sitemap. |
 | [`extract.py`](pricetracker/extract.py) | Reads structured product data (JSON-LD, microdata, Open Graph) from a page. |
 | [`match.py`](pricetracker/match.py) | Decides whether a page is the item, which of several prices applies, and how sure we are. |
