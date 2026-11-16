@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from pricetracker.fetch import USER_AGENT, Fetcher, Outcome
+from pricetracker.models import Connection
 
 HTML = "<html><head><title>Piusi K33</title></head><body>ok</body></html>"
 
@@ -170,6 +171,100 @@ def test_user_agent_header_is_the_project_string():
     f.get("https://a.co.uk/p")
     assert USER_AGENT == "PriceTrackerPOC/0.1 (price comparison tool)"
     assert all(r.headers["user-agent"] == USER_AGENT for r in seen)
+
+
+# ----- connection per site -----
+
+CHALLENGE = (403, "<title>Just a moment...</title>")
+
+
+def make2(h2_table, h1_table, h2_robots=None, h1_robots=None):
+    """Fetcher whose HTTP/2 and HTTP/1.1 clients answer from separate tables.
+    A table value may be an Exception to raise."""
+    seen = {"h2": [], "h1": []}
+
+    def side(name, table, robots):
+        def handler(request):
+            seen[name].append(request.url.path)
+            if request.url.path == "/robots.txt":
+                if isinstance(robots, tuple):
+                    return httpx.Response(robots[0], text=robots[1])
+                return httpx.Response(200, text=robots) if robots is not None else httpx.Response(404)
+            hit = table.get(request.url.path, (404, "nope"))
+            if isinstance(hit, Exception):
+                raise hit
+            status, body = hit
+            return httpx.Response(status, text=body, headers={"content-type": "text/html"})
+        return httpx.MockTransport(handler)
+
+    f = Fetcher(transport=side("h2", h2_table, h2_robots),
+                h1_transport=side("h1", h1_table, h1_robots), min_delay=0)
+    return f, seen
+
+
+def pages_only(paths_seen):
+    return [p for p in paths_seen if p != "/robots.txt"]
+
+
+def test_test_connection_keeps_http2_when_it_works():
+    f, seen = make2({"/": (200, HTML)}, {"/": (200, HTML)})
+    conn, page = f.test_connection("https://a.co.uk/")
+    assert conn == Connection.HTTP2 and page.outcome == Outcome.OK
+    assert f.connection("https://a.co.uk/") == Connection.HTTP2 and seen["h1"] == []
+
+
+def test_test_connection_falls_back_to_http1_when_http2_is_refused():
+    f, seen = make2({"/": CHALLENGE}, {"/": (200, HTML), "/p": (200, HTML)})
+    conn, page = f.test_connection("https://a.co.uk/")
+    assert conn == Connection.HTTP1 and page.outcome == Outcome.OK
+    assert f.get("https://a.co.uk/p").outcome == Outcome.OK
+    assert pages_only(seen["h2"]) == ["/"] and pages_only(seen["h1"]) == ["/", "/p"]
+
+
+def test_test_connection_neither_when_both_refused_and_pages_still_use_http2():
+    f, seen = make2({"/": CHALLENGE, "/p": (200, HTML)}, {"/": CHALLENGE})
+    conn, page = f.test_connection("https://a.co.uk/")
+    assert conn == Connection.NEITHER and page.outcome == Outcome.REFUSED
+    assert f.get("https://a.co.uk/p").outcome == Outcome.OK
+    assert pages_only(seen["h2"]) == ["/", "/p"] and pages_only(seen["h1"]) == ["/"]
+
+
+def test_test_connection_404_counts_as_working():
+    f, seen = make2({}, {})
+    conn, page = f.test_connection("https://a.co.uk/")
+    assert conn == Connection.HTTP2 and page.outcome == Outcome.NOT_FOUND and seen["h1"] == []
+
+
+def test_test_connection_unreachable_keeps_previous():
+    f, _ = make2({"/": httpx.ConnectError("down")}, {})
+    f.set_connection("https://a.co.uk/", Connection.HTTP1)
+    conn, page = f.test_connection("https://a.co.uk/")
+    assert conn == Connection.HTTP1 and page.outcome == Outcome.UNREACHABLE
+
+
+def test_first_refusal_retests_once_and_refetches_page():
+    f, seen = make2({"/p": CHALLENGE, "/q": CHALLENGE, "/": CHALLENGE},
+                    {"/": (200, HTML), "/p": (200, HTML), "/q": CHALLENGE})
+    assert f.get("https://a.co.uk/p").outcome == Outcome.OK
+    assert f.connection("https://a.co.uk/") == Connection.HTTP1
+    assert f.get("https://a.co.uk/q").outcome == Outcome.REFUSED   # no second test
+    assert pages_only(seen["h2"]) == ["/p", "/"]
+    assert pages_only(seen["h1"]) == ["/", "/p", "/q"]
+
+
+def test_robots_reloaded_after_switch_when_it_was_refused():
+    f, seen = make2({"/": CHALLENGE}, {"/": (200, HTML), "/p": (200, HTML)},
+                    h2_robots=CHALLENGE, h1_robots="User-agent: *\nDisallow: /p\n")
+    assert f.test_connection("https://a.co.uk/")[0] == Connection.HTTP1
+    assert f.get("https://a.co.uk/p").outcome == Outcome.DISALLOWED
+    assert "/robots.txt" in seen["h1"] and "/p" not in seen["h1"]
+
+
+def test_preset_connection_is_used_without_testing():
+    f, seen = make2({"/p": (200, HTML)}, {"/p": (200, HTML)})
+    f.set_connection("https://a.co.uk/", Connection.HTTP1)
+    assert f.get("https://a.co.uk/p").outcome == Outcome.OK
+    assert seen["h2"] == [] and pages_only(seen["h1"]) == ["/p"]
 
 
 def test_sitemaps_from_robots_and_default():
