@@ -6,10 +6,11 @@ import pytest
 
 from conftest import COMP_HEADERS, LINK_HEADERS
 from pricetracker import excel_io
-from pricetracker.excel_io import (InputError, read_competitors, read_items, read_links,
-                                   save_workbook, write_competitors, write_links, write_table)
+from pricetracker.excel_io import (InputError, join_note, read_competitors, read_items, read_links,
+                                   save_workbook, split_note, write_competitors, write_links,
+                                   write_table)
 from pricetracker.issues import ISSUE_HEADERS, IssueLog
-from pricetracker.models import Access, ProductLink, VatBasis
+from pricetracker.models import Access, Connection, ProductLink, VatBasis
 
 
 def test_reads_items_with_mangled_cells(tmp_path, make_xlsx):
@@ -131,6 +132,37 @@ def test_write_competitors_updates_tool_columns_and_adds_missing_ones(tmp_path, 
     assert again.search_status == Access.NO_SEARCH and again.page_status == Access.REACHABLE
     assert again.search_address == "https://www.tanksrus.co.uk/?s={q}"
     assert again.vat_basis == VatBasis.UNKNOWN
+
+
+def test_note_round_trip_and_junk_is_ignored():
+    assert join_note("forbidden by the site's rules (robots.txt)", "") == \
+        "Search: forbidden by the site's rules (robots.txt)"
+    both = join_note("a", "b")
+    assert both == "Search: a\nProduct pages: b" and split_note(both) == ("a", "b")
+    assert split_note("hello\nSearch: x") == ("x", "") and split_note("") == ("", "")
+    assert join_note("", "") == ""
+
+
+def test_competitors_new_columns_round_trip(tmp_path, make_xlsx):
+    p = make_xlsx(tmp_path, "Competitors.xlsx", COMP_HEADERS,
+                  [["Tanks", "T4E", "https://www.t4e.co.uk/", None, None, None, None, None]])
+    rows = read_competitors(p)
+    assert rows[0].connection is None and rows[0].site_checked is None and rows[0].search_note == ""
+    rows[0].connection = Connection.HTTP1
+    rows[0].search_note, rows[0].page_note = "x", "y"
+    rows[0].site_checked = datetime(2026, 11, 20, 9, 30)
+    out = write_competitors(p, rows)
+    headers = [c.value for c in openpyxl.load_workbook(out).active[1]]
+    assert headers[-3:] == ["Connection", "Status note", "Site checked"]
+    again = read_competitors(out)[0]
+    assert (again.connection, again.search_note, again.page_note, again.site_checked) == (
+        Connection.HTTP1, "x", "y", datetime(2026, 11, 20, 9, 30))
+
+
+def test_junk_connection_reads_as_untested(tmp_path, make_xlsx):
+    p = make_xlsx(tmp_path, "Competitors.xlsx", COMP_HEADERS + ["Connection"],
+                  [["Tanks", "T4E", "https://www.t4e.co.uk/", None, None, None, None, None, "fast"]])
+    assert read_competitors(p)[0].connection is None
 
 
 def test_save_falls_back_when_file_is_open(tmp_path, monkeypatch):
